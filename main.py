@@ -1,10 +1,19 @@
 import os
 import discord
-from discord import app_commands
 from discord.ext import commands
 from supabase import create_client, Client
-import asyncio
 import random
+from flask import Flask
+from threading import Thread
+
+# --- SERVER CIVETTA PER KOYEB ---
+app = Flask('')
+@app.route('/')
+def home():
+    return "L E G E N D S is alive!"
+
+def run_web():
+    app.run(host='0.0.0.0', port=8000)
 
 # --- CONFIGURAZIONE CORE L E G E N D S ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -25,17 +34,6 @@ class LegendsBot(commands.Bot):
 
 bot = LegendsBot()
 
-# --- SISTEMA ECONOMIA ---
-async def update_economy(user_id, amount):
-    res = supabase.table("economy").select("*").eq("user_id", user_id).execute()
-    if not res.data:
-        supabase.table("economy").insert({"user_id": user_id, "wallet": amount, "messages_count": 1}).execute()
-    else:
-        new_wallet = res.data[0]['wallet'] + amount
-        new_count = res.data[0]['messages_count'] + 1
-        supabase.table("economy").update({"wallet": new_wallet, "messages_count": new_count}).eq("user_id", user_id).execute()
-
-# --- EVENTI ---
 @bot.event
 async def on_ready():
     print(f"L E G E N D S ONLINE: {bot.user}")
@@ -43,31 +41,23 @@ async def on_ready():
 @bot.event
 async def on_message(message):
     if message.author.bot or not message.guild: return
-    await update_economy(message.author.id, random.randint(3, 9))
-    await bot.process_commands(message)
+    # Sistema economia semplice
+    res = supabase.table("economy").select("*").eq("user_id", message.author.id).execute()
+    amount = random.randint(3, 9)
+    if not res.data:
+        supabase.table("economy").insert({"user_id": message.author.id, "wallet": amount}).execute()
+    else:
+        new_wallet = res.data[0]['wallet'] + amount
+        supabase.table("economy").update({"wallet": new_wallet}).eq("user_id", message.author.id).execute()
 
-# --- COMANDI UTENTE ---
-@bot.tree.command(name="wallet", description="Visualizza il saldo")
+@bot.tree.command(name="wallet", description="Vedi il saldo")
 async def wallet(interaction: discord.Interaction):
     res = supabase.table("economy").select("wallet").eq("user_id", interaction.user.id).execute()
     balance = res.data[0]['wallet'] if res.data else 0
-    await interaction.response.send_message(f"💰 Saldo attuale: **{balance}** 🪙")
-
-# --- PANNELLO ADMIN ---
-class AdminView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="Stato Database", style=discord.ButtonStyle.green)
-    async def status(self, interaction: discord.Interaction, button: discord.ui.Button):
-        res = supabase.table("economy").select("*", count="exact").execute()
-        await interaction.response.send_message(f"✅ DB Online. Utenti: **{res.count}**", ephemeral=True)
-
-@bot.tree.command(name="admin-panel", description="Dashboard L E G E N D S")
-async def admin(interaction: discord.Interaction):
-    if not interaction.user.guild_permissions.administrator:
-        return await interaction.response.send_message("Accesso negato.", ephemeral=True)
-    await interaction.response.send_message("⚡ **L E G E N D S  CONTROL**", view=AdminView(), ephemeral=True)
+    await interaction.response.send_message(f"💰 Saldo: **{balance}** 🪙")
 
 if __name__ == "__main__":
+    # Avvia il server web in un thread separato
+    Thread(target=run_web).start()
+    # Avvia il bot
     bot.run(TOKEN)
